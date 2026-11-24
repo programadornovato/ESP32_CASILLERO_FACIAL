@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "author": "Programador Novato",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-servo", "id": "servo1", "top": -120, "left": 230, "attrs": { "horn": "single" } },
+    { "type": "wokwi-servo", "id": "servo2", "top": 10, "left": 230, "attrs": { "horn": "single" } },
+    { "type": "wokwi-servo", "id": "servo3", "top": 140, "left": 230, "attrs": { "horn": "single" } },
+    { "type": "wokwi-led", "id": "ledFlash", "top": 230, "left": -120, "attrs": { "color": "white", "label": "LED flash GPIO4" } },
+    { "type": "wokwi-resistor", "id": "r1", "top": 300, "left": -60, "rotate": 90, "attrs": { "value": "220" } }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+
+    [ "esp:14", "servo1:PWM", "orange", [ "h-19.2", "v-144", "h192", "v-48" ] ],
+    [ "esp:15", "servo2:PWM", "orange", [ "h19.2", "v-96" ] ],
+    [ "esp:13", "servo3:PWM", "orange", [ "h-19.2", "v76.8", "h211.2", "v-9.6" ] ],
+
+    [ "esp:5V", "servo1:V+", "red", [ "h-28.8", "v-249.6", "h220.8" ] ],
+    [ "esp:5V", "servo2:V+", "red", [ "h-28.8", "v-153.6", "h220.8" ] ],
+    [ "esp:5V", "servo3:V+", "red", [ "h-28.8", "v-28.8", "h220.8" ] ],
+
+    [ "esp:GND.2", "servo1:GND", "black", [ "h38.4", "v-124.8" ] ],
+    [ "esp:GND.2", "servo2:GND", "black", [ "h38.4", "v9.6" ] ],
+    [ "esp:GND.2", "servo3:GND", "black", [ "h38.4", "v134.4" ] ],
+
+    [ "esp:4", "r1:1", "green", [ "h28.8", "v115.2", "h-153.6" ] ],
+    [ "r1:2", "ledFlash:A", "green", [ "v0" ] ],
+    [ "ledFlash:C", "esp:GND.1", "black", [ "v0" ] ]
+  ],
+  "dependencies": {}
+}

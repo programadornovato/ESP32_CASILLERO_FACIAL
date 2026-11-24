@@ -1,0 +1,72 @@
+=====================================================================
+ CASILLEROS CON RECONOCIMIENTO FACIAL - ESP32-CAM AI Thinker
+ Canal Programador Novato
+=====================================================================
+
+Firmware ya compilado (core esp32 1.0.6). No necesitas Arduino IDE.
+
+Placa: ESP32-CAM AI Thinker (OV2640, 4 MB de flash, con PSRAM)
+Ajustes de grabacion: flash mode DIO, 80 MHz, 4 MB
+
+IMPORTANTE: graba SOLO el archivo "completo" (en 0x0) O SOLO los 4
+archivos numerados (cada uno en su direccion). NO los dos: el
+completo ya contiene los 4. Si cargas los 5 funciona, pero tarda el doble.
+Consejo: usa 460800 o 921600 baudios para que tarde menos de 1 minuto.
+(Tambien funciona en https://esptool.spacehuhn.com/ )
+
+---------------------------------------------------------------------
+ OPCION A (la mas facil): un solo archivo desde el navegador
+---------------------------------------------------------------------
+Archivo: CASILLERO_FACIAL_completo_0x0.bin   ->  direccion 0x0
+
+1. Conecta la ESP32-CAM al adaptador USB-TTL (FT232/CH340) y pon
+   GPIO0 a GND (modo programacion). Pulsa RESET.
+2. Abre en Chrome o Edge:  https://espressif.github.io/esptool-js/
+3. Baudrate 115200 -> "Connect" -> elige el puerto COM.
+4. (Recomendado) pulsa "Erase Flash" para borrar todo lo anterior.
+5. Flash Address: 0x0   File: CASILLERO_FACIAL_completo_0x0.bin
+   -> "Program".
+6. Quita el puente GPIO0-GND y pulsa RESET.
+
+---------------------------------------------------------------------
+ OPCION B: con esptool (linea de comandos)
+---------------------------------------------------------------------
+Un solo archivo:
+  esptool.py --chip esp32 --port COM5 --baud 460800 write_flash -z ^
+    --flash_mode dio --flash_freq 80m --flash_size 4MB ^
+    0x0 CASILLERO_FACIAL_completo_0x0.bin
+
+O los 4 archivos por separado (lo mismo que hace Arduino IDE):
+  esptool.py --chip esp32 --port COM5 --baud 460800 write_flash -z ^
+    --flash_mode dio --flash_freq 80m --flash_size 4MB ^
+    0x1000  1_bootloader_0x1000.bin ^
+    0x8000  2_particiones_0x8000.bin ^
+    0xe000  3_boot_app0_0xe000.bin ^
+    0x10000 4_programa_0x10000.bin
+
+(Cambia COM5 por tu puerto. Para borrar todo antes:
+  esptool.py --chip esp32 --port COM5 erase_flash )
+
+---------------------------------------------------------------------
+ OPCION C: "Flash Download Tool" de Espressif (Windows)
+---------------------------------------------------------------------
+Chip ESP32 -> marca los 4 archivos con sus direcciones (0x1000,
+0x8000, 0xe000, 0x10000) o solo el completo en 0x0.
+SPI SPEED 80MHz, SPI MODE DIO, FLASH SIZE 32Mbit (4 MB) -> START.
+
+---------------------------------------------------------------------
+ DESPUES DE GRABAR
+---------------------------------------------------------------------
+- Conectate a la red Wi-Fi:  ESP32CAM-CASILLERO   clave: 12345678
+- Abre:  http://192.168.4.1
+- Elige trabajar directo o conectarla a tu red Wi-Fi (2.4 GHz).
+  En tu red tambien funciona:  http://casillero.local
+- PIN de administracion: 1234 (cambialo en Ajustes)
+- Servos: casillero 1 = GPIO 14, casillero 2 = GPIO 15,
+  casillero 3 = GPIO 13 (con fuente de 5 V aparte y GND comun)
+- LED de encendido: GPIO 2 -> resistencia 220-330 ohm -> LED -> GND
+  (el flash de la camara, GPIO 4, queda siempre apagado)
+- Monitor serie: 115200 baudios
+
+AVISO: es un proyecto educativo. El reconocimiento facial puede
+engañarse con una foto; no lo uses para guardar cosas de valor.

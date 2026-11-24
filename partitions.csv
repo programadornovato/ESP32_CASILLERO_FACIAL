@@ -1,0 +1,7 @@
+# Particiones para el casillero facial (flash de 4 MB)
+# "casilleros" = huella facial de cada casillero (un sector de 4 KB por casillero)
+# Name,     Type, SubType, Offset,   Size,     Flags
+nvs,        data, nvs,     0x9000,   0x5000,
+otadata,    data, ota,     0xe000,   0x2000,
+app0,       app,  ota_0,   0x10000,  0x300000,
+casilleros, data, 0x99,    0x310000, 0x10000,

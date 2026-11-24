@@ -1,0 +1,96 @@
+Actúa como ingeniero experto en ESP32-CAM, Arduino IDE, C++ y visión artificial embebida. Te explico un proyecto que YA FUNCIONA para que me ayudes a mantenerlo y mejorarlo. No lo reescribas desde cero: respeta la arquitectura, las versiones y las decisiones técnicas que te describo, porque varias se tomaron tras resolver errores reales.
+
+# PROYECTO: CASILLEROS CON RECONOCIMIENTO FACIAL (ESP32-CAM)
+
+Lo hago para mi canal de YouTube "Programador Novato". Es educativo: no es un sistema de seguridad real (una foto puede engañarlo).
+
+## Qué hace
+- Hay 3 casilleros, cada uno con un servomotor.
+- Desde una página web (alojada en la propia ESP32-CAM) se ven los casilleros LIBRES y OCUPADOS.
+- Tocar un casillero LIBRE: la cámara se enciende, toma 5 fotos de la cara, calcula una "huella facial" (vector de 512 números), la guarda para ESE casillero, abre el servo 5 s y lo cierra. El casillero pasa a OCUPADO.
+  - Si esa cara ya es dueña de otro casillero, se rechaza.
+  - Tiempo límite 20 s.
+- Tocar un casillero OCUPADO: la cámara se enciende y compara la cara SOLO con la huella del dueño de ese casillero (verificación 1:1). Si la similitud supera el umbral 2 veces seguidas, abre 5 s. Si en 10 s no coincide, no abre.
+- Tras abrir su casillero, el dueño tiene 30 s para pulsar "Liberar" (borra su huella y el casillero queda LIBRE).
+- La cámara está en REPOSO el resto del tiempo (no captura, no analiza, no transmite).
+- Todo el procesamiento facial ocurre DENTRO de la ESP32-CAM. El celular solo muestra la interfaz.
+
+## Hardware
+- ESP32-CAM AI Thinker clásica, cámara OV2640, 4 MB flash, con PSRAM.
+- Programador FT232 USB-TTL. Windows 11 + Arduino IDE 2.
+- Servos SG90/MG90S: casillero 1 = GPIO 14, casillero 2 = GPIO 15, casillero 3 = GPIO 13. Alimentación de servos con fuente de 5 V aparte (>= 2 A) y GND común.
+- LED flash integrado en GPIO 4 (opcional, para poca luz).
+- GPIO 12 no se usa (pin de arranque).
+
+## Versiones (MUY IMPORTANTE)
+- Core "esp32 by Espressif Systems" versión 1.0.6. NO 2.x ni 3.x: desde 2.x el reconocimiento facial no es práctico en el ESP32 clásico (solo en ESP32-S3) y en 3.x ya no existe la librería.
+- Librería esp-face incluida en el core 1.0.6 (no se instala aparte): fd_forward.h (detección MTMN), fr_forward.h (alineación y huella FRMN).
+- Placa en Arduino: "AI Thinker ESP32-CAM".
+- En el core 1.0.6 la cámara usa pin_sscb_sda / pin_sscb_scl (no "sccb") y no existen fb_location ni grab_mode.
+
+## Archivos del proyecto (carpeta ESP32_CASILLERO_FACIAL)
+- ESP32_CASILLERO_FACIAL.ino: todo el firmware.
+- pagina_app.h: HTML/CSS/JS de la aplicación (en PROGMEM, raw string R"HTML(...)HTML").
+- pagina_wifi.h: HTML/CSS/JS de la configuración Wi-Fi.
+  (Las páginas van en .h porque el preprocesador de Arduino confundía el JavaScript dentro del .ino con funciones C++.)
+- partitions.csv (en la carpeta del sketch, el core 1.0.6 lo usa automáticamente; SOLO caracteres ASCII, el generador de particiones antiguo falla con acentos):
+    nvs,        data, nvs,  0x9000,   0x5000
+    otadata,    data, ota,  0xe000,   0x2000
+    app0,       app,  ota_0,0x10000,  0x300000
+    casilleros, data, 0x99, 0x310000, 0x10000
+- binarios/: .bin para compartir (completo en 0x0, o bootloader 0x1000, particiones 0x8000, boot_app0 0xe000, programa 0x10000; flash mode DIO 80 MHz 4 MB).
+- wokwi/: diagram.json y sketch de prueba de servos (Wokwi no simula la ESP32-CAM; se usa ESP32 DevKit con los mismos GPIO).
+
+## Arquitectura del firmware
+1. Cámara: JPEG QVGA 320x240, fb_count = 1 (con 1 buffer el driver 1.0.6 solo captura cuando se pide; con 2 captura sin parar).
+2. Tarea FreeRTOS "vision" en el núcleo 1 (pila 20 KB): ÚNICA que usa la cámara y las huellas. Máquina de estados: OP_NINGUNA (reposo), OP_REGISTRO, OP_VERIFICAR.
+   Por foto: esp_camera_fb_get -> fmt2rgb888 (a dl_matrix3du_t de 320x240x3) -> face_detect(imagen, &mtmn_config) -> align_face(cajas, imagen, alineada 56x56) -> get_face_id(alineada) -> vector de 512 floats (FACE_ID_SIZE).
+3. Comparación: similitud coseno calculada por mí; umbral por defecto FACE_REC_THRESHOLD = 0.55 (configurable de 0.40 a 0.90).
+4. Registro: se SUMAN las 5 huellas (el coseno no depende de la escala) y se guardan.
+5. Almacenamiento: partición "casilleros" con esp_partition_find_first / esp_partition_erase_range / esp_partition_write / esp_partition_read. Un sector de 4 KB por casillero: { uint32 magia "CAS1", uint32 versión, float id[512] }. Borrar = borrar el sector.
+6. Servos: LEDC canales 2, 3, 4 (el canal 0 lo usa la cámara), 50 Hz, 16 bits, pulso 0.5–2.5 ms. Solo el loop() mueve los servos (la tarea de visión los pide con flags volatile).
+7. Ajustes en Preferences (namespace "cfg"): tiempo abierto, ángulos cerrado/abierto, umbral, LED flash, voltear vertical/espejo (el sensor de mi módulo está montado al revés), PIN de administración (por defecto 1234).
+8. Comunicación: WebServer de Arduino (puerto 80) + JSON. El navegador consulta /estado cada 400 ms y /foto (JPEG + cabecera X-Cara con la caja) solo cuando la cámara está activa.
+9. Diagnóstico: motivo del último reinicio (esp_reset_reason), uptime, heap mínimo, pila libre de la tarea, desconexiones Wi-Fi, revisión opcional del heap (#define DEPURAR_HEAP).
+
+## Red Wi-Fi
+- Modo WIFI_AP_STA: el punto de acceso propio SIEMPRE está activo: SSID "ESP32CAM-CASILLERO", clave "12345678", http://192.168.4.1
+- Pantalla inicial: lista de redes escaneadas (asíncrono), elegir una y poner la contraseña; se guarda en Preferences (namespace "red") y en los siguientes arranques se conecta sola. También opción "trabajar directo en 192.168.4.1".
+- mDNS: http://casillero.local en la red de casa (funciona en PC/iPhone; en algunos Android solo funciona la IP).
+- Solo redes de 2.4 GHz.
+
+## API HTTP
+GET  /            -> app o configuración Wi-Fi según el estado
+GET  /app, /wifi
+GET  /estado      -> JSON: op, opCas, progreso, segundos, sim, simMax, umbral, resultado, casilleros[{ocupado, abierto, restante, liberable, gpio}], eventos, diagnóstico, ajustes
+GET  /foto        -> último JPEG analizado (503 si la cámara está en reposo)
+POST /casillero   (cas=1..3) -> libre: registrar | ocupado: verificar
+POST /cancelar
+POST /liberar     (cas) -> solo en los 30 s posteriores a que el dueño abrió
+POST /verificar   (pin) -> comprobar PIN de administración
+POST /forzarLibre (pin, cas)   POST /probar (pin, cas)   POST /ajustes (pin, ...)
+GET  /redes  POST /conectar  GET /estadoRed  POST /modoAP  POST /olvidar
+
+## Interfaz web
+Tema oscuro tipo videojuego. Cámara a la izquierda (fija al desplazarse) e instrucciones + tarjetas de casilleros a la derecha (verde LIBRE, naranja OCUPADO, azul ABIERTO con cuenta atrás). Barra de progreso de fotos al registrar; barra de "parecido" con marca del umbral al verificar. Abajo: eventos, administración con PIN y diagnóstico. Avisa "SIN CONEXIÓN / Reconectando" y si la ESP32 se reinició, con el motivo.
+
+## ERRORES YA RESUELTOS (no los reintroduzcas)
+1. BUG del ejemplo oficial CameraWebServer 1.0.6: face_detect() reserva las cajas (score, box, landmark y la propia estructura) con dl_lib_calloc(), que devuelve el puntero desplazado 4 bytes. Se DEBEN liberar con dl_lib_free(), NUNCA con free(). Con free() la ESP32 se reiniciaba ("CORRUPT HEAP: Bad head ... got 0x00000008") cada vez que detectaba una cara.
+2. El reconocimiento en lista de esp-face (recognize_face/enroll_face_id_to_flash) no permite borrar una persona concreta; por eso guardo yo una huella por casillero con get_face_id().
+3. Las páginas HTML/JS van en archivos .h (no dentro del .ino).
+4. El compilador antiguo del core 1.0.6 (GCC 5.2) no acepta identificadores con acentos o ñ.
+5. En Windows, si la ruta del proyecto es muy larga, el core 1.0.6 falla con "algorithm: No such file or directory": usar una ruta corta.
+6. partitions.csv solo con ASCII.
+
+## Limitaciones conocidas
+- El detector necesita caras de al menos 80 px (persona a 40–70 cm, de frente y con buena luz).
+- Velocidad aproximada de pocos análisis por segundo.
+- No distingue una foto de una persona real.
+
+## Cómo quiero que me ayudes
+- Responde en español, con código COMPLETO y compilable para el core esp32 1.0.6 (no pseudocódigo ni fragmentos sueltos).
+- No inventes funciones ni librerías: usa solo lo que existe en el core 1.0.6 y esp-face de esa versión.
+- Si propones un cambio, indica en qué archivo y sección va.
+- Si algo no es posible en el ESP32 clásico, dilo claramente y propón una alternativa.
+
+Mi pregunta es: [ESCRIBE AQUÍ LO QUE QUIERES QUE HAGA]
